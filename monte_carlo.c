@@ -1,3 +1,4 @@
+// Monte Carlo algorithm is used to calculate appoximate value of PI. This is the serialized version.
 #include<stdio.h>
 #include <stdlib.h>
 #include<time.h>
