@@ -1,0 +1,101 @@
+#include<stdio.h>
+#include<cuda.h>
+#define TILE_WIDTH 2
+__global__ void mat_mul(float *a, float *b, float *c, int n)
+{
+	__shared__ float A_shared[TILE_WIDTH][TILE_WIDTH];
+	__shared__ float B_shared[TILE_WIDTH][TILE_WIDTH];
+	
+	int row = blockIdx.y*TILE_WIDTH + threadIdx.y;
+	int column = blockIdx.x*TILE_WIDTH + threadIdx.x;
+	if(row >= n || column >=n)
+	{	
+		return;
+	}
+
+	float sum = 0.0;
+	float reg_1 = *(a + row*n + threadIdx.x);
+	float reg_2 = *(b + threadIdx.y*n + column);
+
+	for(int m = 1;m<n/TILE_WIDTH;m++)
+	{
+		A_shared[threadIdx.y][threadIdx.x] = reg_1;
+		B_shared[threadIdx.y][threadIdx.x] = reg_2;
+
+		__syncthreads();
+		
+		reg_1 = *(a + row*n + m*TILE_WIDTH + threadIdx.x);
+		reg_2 = *(b + (m*TILE_WIDTH + threadIdx.y)*n + column);	
+		
+		for(int k = 0;k<TILE_WIDTH;k++)
+		{
+			sum += A_shared[threadIdx.y][k]*B_shared[k][threadIdx.x];
+		}	 	
+
+		__syncthreads();
+	}
+	
+	A_shared[threadIdx.y][threadIdx.x] = reg_1;
+	B_shared[threadIdx.y][threadIdx.x] = reg_2;
+	
+	__syncthreads();
+	
+	for(int k = 0;k<TILE_WIDTH;k++)
+	{
+		sum += A_shared[threadIdx.y][k]*B_shared[k][threadIdx.x];
+	}
+	
+	__syncthreads();
+
+	*(c + row*n + column) = sum;
+	
+}
+int main()
+{
+	int n;
+	printf("Enter order of matrix(n):");
+	scanf("%d",&n);
+
+	float *ha,*hb,*hc;
+	
+	cudaMallocHost((void**)&ha, sizeof(float)*n*n);
+	cudaMallocHost((void**)&hb, sizeof(float)*n*n);
+	cudaMallocHost((void**)&hc, sizeof(float)*n*n);
+	
+	for(int i=0;i<n;i++)
+	{
+		for(int j=0;j<n;j++)
+			ha[i*n+j]=rand()%100;
+	}
+	
+	for(int i=0;i<n;i++)
+	{
+		for(int j=0;j<n;j++)
+			hb[i*n+j]=rand()%100;
+	}
+	
+	float *da,*db,*dc;
+	
+	cudaMalloc((void**)&da, sizeof(float)*n*n);
+	cudaMalloc((void**)&db, sizeof(float)*n*n);
+	cudaMalloc((void**)&dc, sizeof(float)*n*n);
+	
+	cudaMemcpy(da,ha, sizeof(float)*n*n, cudaMemcpyHostToDevice);
+	cudaMemcpy(db,hb, sizeof(float)*n*n, cudaMemcpyHostToDevice);
+	
+	dim3 dimgrid((n - 1) / TILE_WIDTH + 1, (n - 1) / TILE_WIDTH + 1, 1);
+        dim3 dimblock(TILE_WIDTH,TILE_WIDTH,1);
+
+	mat_mul<<<dimgrid, dimblock>>>(da,db,dc,n);
+	
+	cudaMemcpy(hc,dc, sizeof(int)*n*n, cudaMemcpyDeviceToHost);
+
+	printf("\nResult:\n");
+	for(int i=0;i<n;i++)
+	{
+		for(int j=0;j<n;j++)
+			printf("%.0f\t",hc[i*n+j]);
+		printf("\n");
+	}
+	return 0;
+}
